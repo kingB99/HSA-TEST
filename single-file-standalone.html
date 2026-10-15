@@ -207,6 +207,7 @@ input[type="color"] { padding: 2px; height: 38px; }
 .erg-list { margin: 6px 0 14px 0; padding-left: 22px; }
 .erg-list li { margin-bottom: 5px; }
 #erg-search { width: 100%; max-width: 420px; }
+.login-hint { font-size: 13px; color: #64748b; margin: 2px 0 8px; }
 
 </style>
 </head>
@@ -258,6 +259,7 @@ input[type="color"] { padding: 2px; height: 38px; }
       <label>Email <input name="username" type="email" placeholder="name@company.com" autocomplete="username" required></label>
       <label id="pw-row">Password <input name="password" type="password" required></label>
       <div class="login-error" id="login-error"></div>
+      <div class="login-hint" id="login-hint"></div>
       <div id="first-login" class="hidden">
         <p class="muted">New account: create your password now. You will use it every time after this.</p>
         <label>Create password <input id="np1" type="password" autocomplete="new-password"></label>
@@ -293,6 +295,7 @@ input[type="color"] { padding: 2px; height: 38px; }
   <div id="modal-overlay" class="overlay hidden"><div id="modal-box"></div></div>
   <div id="toast" class="toast hidden"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
 /* ================================================================
    api.js, DATA LAYER (the ONLY file that touches a database)
@@ -409,47 +412,60 @@ const API = (() => {
     return window._sb;
   }
 
+  async function supaSaveFile(file) {
+    const s = await sb();
+    const path = (API.session.asAgencyId || API.session.agencyId || 'platform')
+      + '/' + uid() + '-' + file.name.replace(/[^\w.\- ]/g, '');
+    const { error } = await s.storage.from('uploads').upload(path, file, { contentType: file.type || undefined });
+    if (error) throw new Error('Upload failed: ' + error.message);
+    const { data } = s.storage.from('uploads').getPublicUrl(path);
+    return { name: file.name, type: file.type, url: data.publicUrl };
+  }
   async function supaList(col, match = {}) {
-    // TODO(SUPABASE): replace body with:
-    //   const s = await sb();
-    //   let q = s.from(col).select();
-    //   for (const [k, v] of Object.entries(match)) q = q.eq(k, v);
-    //   const { data, error } = await q.order('created', { ascending: false });
-    //   if (error) throw error;
-    //   return data.map(row => ({ ...row.data, id: row.id, agency_id: row.agency_id }));
-    // (RLS already filters rows to the caller's agency.)
-    throw new Error('Supabase adapter not wired yet, see TODO(SUPABASE) in js/api.js');
+    // RLS filters rows to the caller's agency. When a SUPER_ADMIN is
+    // impersonating an agency, add the client-side agency filter.
+    const m = { ...match };
+    if (API.session.role === 'SUPER_ADMIN' && API.session.asAgencyId && col !== 'agencies')
+      m.agency_id = API.session.asAgencyId;
+    const s = await sb();
+    let q = s.from(col).select();
+    for (const [k, v] of Object.entries(m)) q = q.eq(k, v);
+    const { data, error } = await q;
+    if (error) throw new Error('Supabase list failed: ' + error.message);
+    return (data || [])
+      .sort((x, y) => String((y.created_at || y.created || '')).localeCompare(String((x.created_at || x.created || ''))))
+      .map(row => col === 'agencies'
+        ? { ...row.data, id: row.id }
+        : { ...row.data, id: row.id, agency_id: row.agency_id });
   }
   async function supaGet(col, id) {
-    // TODO(SUPABASE):
-    //   const { data, error } = await (await sb()).from(col).select().eq('id', id).single();
-    //   return data ? { ...data.data, id: data.id, agency_id: data.agency_id } : null;
-    throw new Error('Supabase adapter not wired yet');
+    const { data, error } = await (await sb()).from(col).select().eq('id', id).maybeSingle();
+    if (error) throw new Error('Supabase get failed: ' + error.message);
+    return data ? (col === 'agencies'
+      ? { ...data.data, id: data.id }
+      : { ...data.data, id: data.id, agency_id: data.agency_id }) : null;
   }
   async function supaCreate(col, data) {
-    // TODO(SUPABASE): stamp the agency and insert:
-    //   const rec = { ...data, id: data.id || uid(), created: todayISO() };
-    //   const { error } = await (await sb()).from(col)
-    //     .insert({ id: rec.id, agency_id: rec.agency_id || null, data: rec });
-    //   if (error) throw error;
-    //   return rec;
-    throw new Error('Supabase adapter not wired yet');
+    const rec = { ...data, id: data.id || uid(), created: todayISO() };
+    const { error } = await (await sb()).from(col)
+      .insert(col === 'agencies' ? { id: rec.id, data: rec } : { id: rec.id, agency_id: rec.agency_id || null, data: rec });
+    if (error) throw new Error('Supabase create failed: ' + error.message);
+    return col === 'agencies' ? rec : { ...rec, agency_id: rec.agency_id || null };
   }
   async function supaUpdate(col, id, patch) {
-    // TODO(SUPABASE):
-    //   const cur = await supaGet(col, id);
-    //   const rec = { ...cur, ...patch, updated: todayISO() };
-    //   const { error } = await (await sb()).from(col).update({ data: rec }).eq('id', id);
-    //   if (error) throw error;
-    //   return rec;
-    throw new Error('Supabase adapter not wired yet');
+    const cur = await supaGet(col, id);
+    if (!cur) return null;
+    const rec = { ...cur, ...patch, updated: todayISO() };
+    const { error } = await (await sb()).from(col)
+      .update(col === 'agencies' ? { data: rec } : { data: rec, agency_id: rec.agency_id || null })
+      .eq('id', id);
+    if (error) throw new Error('Supabase update failed: ' + error.message);
+    return rec;
   }
   async function supaRemove(col, id) {
-    // TODO(SUPABASE):
-    //   const { error } = await (await sb()).from(col).delete().eq('id', id);
-    //   if (error) throw error;
-    //   return true;
-    throw new Error('Supabase adapter not wired yet');
+    const { error } = await (await sb()).from(col).delete().eq('id', id);
+    if (error) throw new Error('Supabase remove failed: ' + error.message);
+    return true;
   }
 
   /* ---------- public interface ---------- */
@@ -457,6 +473,14 @@ const API = (() => {
 
   return {
     session,   // app.js sets: { userId, agencyId, role, asAgencyId }
+    supa:   useSupa,   // true when the app talks to Supabase
+    sb:     sb,        // the supabase-js client (auth, storage, functions)
+    invoke: async (fn, body) => {   // call an edge function with the caller's auth
+      const s = await sb();
+      const { data, error } = await s.functions.invoke(fn, { body });
+      if (error) return { ok: false, error: error.message };
+      return data;
+    },
     list:   (col, match) => useSupa() ? supaList(col, match)   : localList(col, match),
     get:    (col, id)     => useSupa() ? supaGet(col, id)      : localGet(col, id),
     create: (col, data)   => useSupa() ? supaCreate(col, data) : localCreate(col, data),
@@ -472,7 +496,7 @@ const API = (() => {
          await s.storage.from('uploads').upload(path, file);
          const { data } = s.storage.from('uploads').getPublicUrl(path);
          return { name: file.name, type: file.type, url: data.publicUrl };  */
-    saveFile: (file) => new Promise((resolve, reject) => {
+    saveFile: (file) => useSupa() ? supaSaveFile(file) : new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve({ name: file.name, type: file.type, url: reader.result });
       reader.onerror = reject;
@@ -5614,8 +5638,18 @@ function showApp() {
 }
 
 /* ---------- login ---------- */
+const SUPA = () => API.supa();   // true when the app talks to Supabase
+async function supaProfileByUid(uid) {
+  const prof = await API.get('users', uid);
+  return prof ? { ...prof, id: uid } : null;
+}
+function supaLoginHint() {
+  $('#login-error').textContent = 'Invalid email or password.';
+  $('#login-hint').textContent = 'Recently added? Check your email for the invitation to set your password first.';
+}
 function openLogin() {
   $('#login-error').textContent = '';
+  $('#login-hint').textContent = '';
   $('#np-error').textContent = '';
   $('#fr-error').textContent = '';
   $('#np1').value = ''; $('#np2').value = '';
@@ -5623,7 +5657,9 @@ function openLogin() {
   $('#pw-row').classList.remove('hidden');
   State.pendingLogin = null;
   // no accounts at all yet: first run setup instead of sign-in
-  const firstRun = JSON.parse(localStorage.getItem('hse_users') || '[]').length === 0;
+  // (Supabase mode: owner setup only at #/setup, it is rejected once any account exists)
+  const firstRun = SUPA() ? location.hash === '#/setup'
+    : JSON.parse(localStorage.getItem('hse_users') || '[]').length === 0;
   $('#first-run').classList.toggle('hidden', !firstRun);
   $('#login-form').classList.toggle('hidden', firstRun);
   $('#login-overlay').classList.remove('hidden');
@@ -5635,8 +5671,19 @@ function openLoginHidden() { openLogin(); $('#login-overlay').classList.add('hid
 $('#login-form').onsubmit = async e => {
   e.preventDefault();
   const fd = new FormData(e.target);
-  const users = JSON.parse(localStorage.getItem('hse_users') || '[]');
   const em = String(fd.get('username') || '').trim().toLowerCase();
+  if (SUPA()) {
+    try {
+      const s = await API.sb();
+      const { data, error } = await s.auth.signInWithPassword({ email: em, password: String(fd.get('password') || '') });
+      if (error || !data.user) { supaLoginHint(); return; }
+      const prof = await supaProfileByUid(data.user.id);
+      if (!prof) { await s.auth.signOut(); $('#login-error').textContent = 'No access profile for this account. Contact your administrator.'; return; }
+      await finishLogin(prof);
+    } catch (err) { $('#login-error').textContent = 'Sign-in failed: ' + err.message; }
+    return;
+  }
+  const users = JSON.parse(localStorage.getItem('hse_users') || '[]');
   const cand = users.find(x => (x.username || '').toLowerCase() === em
                             || (x.email || '').toLowerCase() === em);
   if (cand && !cand.password) {
@@ -5680,6 +5727,21 @@ $('#btn-first-run').onclick = async () => {
   }
   if (p1.length < 6) { $('#fr-error').textContent = 'Use at least 6 characters.'; return; }
   if (p1 !== p2) { $('#fr-error').textContent = 'Passwords do not match.'; return; }
+  if (SUPA()) {
+    const res = await API.invoke('manage-user', {
+      action: 'bootstrap', email: em, fullName: name, password: p1 });
+    if (!res || !res.ok) {
+      $('#fr-error').textContent = (res && res.error) || 'Could not create the owner account.';
+      return;
+    }
+    const s = await API.sb();
+    const { error } = await s.auth.signInWithPassword({ email: em, password: p1 });
+    if (error) { $('#fr-error').textContent = 'Owner created. Sign in with your email and password.'; return; }
+    const { data: { user } } = await s.auth.getUser();
+    const prof = await supaProfileByUid(user.id);
+    if (prof) { toast('Owner account created'); await finishLogin(prof); }
+    return;
+  }
   const u = await API.create('users', {
     fullName: name, email: em, username: em.split('@')[0],
     password: p1, role: 'SUPER_ADMIN', agency_id: null });
@@ -5699,6 +5761,7 @@ $('#btn-np-set').onclick = async () => {
   await finishLogin(rec || u);
 };
 $('#btn-logout').onclick = async () => {
+  if (SUPA()) { try { await (await API.sb()).auth.signOut(); } catch (e) {} }
   State.user = null; saveSession(); setSession(null);
   await applyBranding();
   location.hash = '#/home'; route();
@@ -5930,7 +5993,7 @@ function openForm(mod, record) {
       ].concat(data.trainings || []);
     }
     const col = cfg.collection || mod;
-    if (mod === 'user_accounts' && isNew) data.password = '';
+    if (mod === 'user_accounts' && isNew && !API.supa()) data.password = '';
     if (mod === 'user_accounts') {
       data.email = (data.email || '').toLowerCase().trim();
       const dupe = (await API.list('users', {}))
@@ -5938,11 +6001,31 @@ function openForm(mod, record) {
       if (dupe) return toast('That email already has a login');
       if (State.user.role !== 'SUPER_ADMIN' && data.role === 'SUPER_ADMIN') data.role = 'EMPLOYEE';
     }
+    if (mod === 'user_accounts' && isNew && API.supa()) {
+      // Supabase: the account is created by the manage-user edge function;
+      // Supabase emails the person an invitation to set their password.
+      const res = await API.invoke('manage-user', {
+        action: 'create', email: data.email, fullName: data.fullName || '',
+        role: data.role || 'EMPLOYEE',
+        agencyId: API.session.asAgencyId || API.session.agencyId });
+      if (!res || !res.ok) return toast((res && res.error) || 'Could not create the login');
+      FORM = null; closeModal();
+      toast('Login created. An invitation email was sent to set the password.');
+      route(); return;
+    }
     const saved = isNew ? await API.create(col, data) : await API.update(col, record.id, data);
     if (mod === 'agencies' && isNew && data.adminEmail) {
       const aEmail = (data.adminEmail || '').toLowerCase().trim();
       const dupe = (await API.list('users', {})).find(u => u.email === aEmail);
       if (dupe) toast('That admin email already has a login');
+      else if (API.supa()) {
+        const res = await API.invoke('manage-user', {
+          action: 'create', email: aEmail, fullName: data.adminName || '',
+          role: 'AGENCY_ADMIN', agencyId: saved.id });
+        toast(res && res.ok
+          ? 'Agency and first admin created. An invitation email was sent to set the password.'
+          : (res && res.error) || 'Agency created, but the admin account failed.');
+      }
       else {
         const admin = await API.create('users', { fullName: data.adminName || '', email: aEmail,
           username: aEmail, role: 'AGENCY_ADMIN', password: '' });
@@ -6701,10 +6784,10 @@ async function renderSettings() {
           <td>${esc(u.fullName || u.username || '')}${u.id === State.user.id ? ' (you)' : ''}</td>
           <td>${esc(u.email || '')}</td>
           <td>${esc(u.role || '')}</td>
-          <td>${u.password ? 'Set' : 'Not set yet'}</td>
+          <td>${u.password ? 'Set' : SUPA() ? 'Supabase Auth' : 'Not set yet'}</td>
           <td class="right">${u.role === 'SUPER_ADMIN' && State.user.role !== 'SUPER_ADMIN' ? '' :
             `<button class="btn btn-sm" data-edit-user="${u.id}">Edit</button>
-             ${u.password && u.id !== State.user.id ? `<button class="btn btn-sm" data-reset-user="${u.id}">Reset password</button>` : ''}
+             ${(u.password || SUPA()) && u.id !== State.user.id ? `<button class="btn btn-sm" data-reset-user="${u.id}">Reset password</button>` : ''}
              ${u.id === State.user.id ? '' : `<button class="btn btn-sm" data-del-user="${u.id}">Remove</button>`}`}</td>
         </tr>`).join('')}
         </tbody></table></div>
@@ -6727,21 +6810,47 @@ async function renderSettings() {
   $('#view').querySelectorAll('[data-del-user]').forEach(b =>
     b.onclick = async () => {
       if (!confirm('Remove this login? The person will no longer be able to sign in.')) return;
+      if (SUPA()) {
+        const res = await API.invoke('manage-user', { action: 'remove', userId: b.dataset.delUser });
+        if (!res || !res.ok) { toast((res && res.error) || 'Could not remove the login'); return; }
+        toast('Login removed'); route(); return;
+      }
       await API.remove('users', b.dataset.delUser);
       toast('Login removed'); route();
     });
   $('#view').querySelectorAll('[data-reset-user]').forEach(b =>
     b.onclick = async () => {
-      if (!confirm('Reset this password? The person sets a new one at their next sign-in.')) return;
+      if (!confirm('Reset this password? The person will get an email to set a new one.')) return;
+      if (SUPA()) {
+        const rec = await API.get('users', b.dataset.resetUser);
+        const s = await API.sb();
+        const { error } = await s.auth.resetPasswordForEmail(rec.email || '');
+        toast(error ? 'Could not send the reset email' : 'Password reset email sent');
+        route(); return;
+      }
       await API.update('users', b.dataset.resetUser, { password: '' });
       toast('Password reset'); route();
     });
 }
 
 /* ================= INIT ================= */
-loadSession();
 window.addEventListener('hashchange', route);
-route();
+(async () => {
+  if (SUPA()) {
+    try {
+      const s = await API.sb();
+      const { data: { session } } = await s.auth.getSession();
+      if (session && session.user) {
+        const prof = await supaProfileByUid(session.user.id);
+        if (prof) { State.user = prof; setSession(prof); }
+        else await s.auth.signOut();
+      }
+    } catch (e) { /* stay signed out */ }
+  } else {
+    loadSession();
+  }
+  route();
+})();
 
 </script>
 </body>

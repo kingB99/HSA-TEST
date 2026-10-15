@@ -118,27 +118,36 @@ All data modules follow the same pattern: **New, Search, List, Print**.
 
 ## 5. Connect a real database (Supabase)
 
-Out of the box, data is stored in the browser (localStorage, about 5 MB per
-agency browser, fine to start). All data access goes through **one file**,
-`js/api.js`, and five adapter functions (`list, get, create, update,
-remove`) plus one `saveFile` for uploads. Nothing else in the app knows
-where data lives, so wiring a backend touches only that file.
-
-Steps (the same notes are inline at the top of `js/api.js`):
+The Supabase integration is already built and shipped in this code:
+the five data adapters and file uploads in `js/api.js`, sign-in through
+Supabase Auth, and account provisioning through the `manage-user` edge
+function (`supabase/functions/manage-user/index.ts`). By default the app
+runs on browser storage (`CONFIG.backend = 'local'` in `js/api.js`).
+To switch it to your Supabase project:
 
 1. Create a project at https://supabase.com (free tier is enough).
-2. Run `supabase/schema.sql` in the Supabase SQL editor. It creates every
-   table with `agency_id`, the Row-Level Security tenant-isolation
-   policies, and the `uploads` storage bucket with tenant-separated paths.
-3. Add the Supabase JS client script tag to `index.html`.
-4. In `js/api.js` set `CONFIG.backend = 'supabase'`, paste the project URL
-   and anon key, and fill in the five adapter functions (each has a clearly
-   marked TODO with the exact call) and `saveFile` (upload to the
-   `uploads` bucket and return the public URL).
-5. Use Supabase Auth for sign-in: create a `users` profile row per auth
-   user with `agency_id` and `role`. Keep the same account provisioning
-   rules: accounts are created without a password and the person completes
-   sign-up themselves.
+2. In the Supabase SQL editor, run the whole of `supabase/schema.sql`.
+   It creates every table with `agency_id`, the Row-Level Security
+   tenant-isolation policies, and the `uploads` storage bucket. Re-running
+   it later is safe; it drops and recreates its own policies.
+3. Deploy the edge function once: in the Supabase dashboard open
+   Edge Functions, create a function named exactly `manage-user`, and
+   paste the contents of `supabase/functions/manage-user/index.ts`.
+   This function creates and removes sign-in accounts (it sends Supabase
+   invitation emails, so nobody ever sets another person's password) and
+   it creates the first owner account, but only while the users table is
+   still empty.
+4. In `js/api.js` set `CONFIG.backend = 'supabase'` and paste the project
+   URL and the anon key from Settings, API in the Supabase dashboard.
+5. Open your deployed site at `#/setup` once: the first-run panel creates
+   the platform owner account. This works only while no accounts exist.
+6. Sign in as the owner, create agencies and their first administrator by
+   name and email: the administrator receives an invitation email from
+   Supabase to set their own password, then signs in. Admins add staff in
+   Settings, Login accounts the same way.
+
+The anon key is safe to ship in this file: the database's row-level
+security only ever returns each signed-in user their own agency's rows.
 
 Two backend rules the database must enforce the same way the app does:
 
@@ -171,6 +180,7 @@ js/api.js                     data layer, the only backend integration file
 js/erg.js                     ERG reference data (static, no backend needed)
 js/app.js                     all UI logic (modules sectioned and commented)
 supabase/schema.sql           tables + RLS policies + storage bucket
+supabase/functions/manage-user/index.ts   edge function: creates and removes sign-in accounts
 README.md                     this file
 ```
 

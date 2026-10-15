@@ -113,47 +113,60 @@ const API = (() => {
     return window._sb;
   }
 
+  async function supaSaveFile(file) {
+    const s = await sb();
+    const path = (API.session.asAgencyId || API.session.agencyId || 'platform')
+      + '/' + uid() + '-' + file.name.replace(/[^\w.\- ]/g, '');
+    const { error } = await s.storage.from('uploads').upload(path, file, { contentType: file.type || undefined });
+    if (error) throw new Error('Upload failed: ' + error.message);
+    const { data } = s.storage.from('uploads').getPublicUrl(path);
+    return { name: file.name, type: file.type, url: data.publicUrl };
+  }
   async function supaList(col, match = {}) {
-    // TODO(SUPABASE): replace body with:
-    //   const s = await sb();
-    //   let q = s.from(col).select();
-    //   for (const [k, v] of Object.entries(match)) q = q.eq(k, v);
-    //   const { data, error } = await q.order('created', { ascending: false });
-    //   if (error) throw error;
-    //   return data.map(row => ({ ...row.data, id: row.id, agency_id: row.agency_id }));
-    // (RLS already filters rows to the caller's agency.)
-    throw new Error('Supabase adapter not wired yet, see TODO(SUPABASE) in js/api.js');
+    // RLS filters rows to the caller's agency. When a SUPER_ADMIN is
+    // impersonating an agency, add the client-side agency filter.
+    const m = { ...match };
+    if (API.session.role === 'SUPER_ADMIN' && API.session.asAgencyId && col !== 'agencies')
+      m.agency_id = API.session.asAgencyId;
+    const s = await sb();
+    let q = s.from(col).select();
+    for (const [k, v] of Object.entries(m)) q = q.eq(k, v);
+    const { data, error } = await q;
+    if (error) throw new Error('Supabase list failed: ' + error.message);
+    return (data || [])
+      .sort((x, y) => String((y.created_at || y.created || '')).localeCompare(String((x.created_at || x.created || ''))))
+      .map(row => col === 'agencies'
+        ? { ...row.data, id: row.id }
+        : { ...row.data, id: row.id, agency_id: row.agency_id });
   }
   async function supaGet(col, id) {
-    // TODO(SUPABASE):
-    //   const { data, error } = await (await sb()).from(col).select().eq('id', id).single();
-    //   return data ? { ...data.data, id: data.id, agency_id: data.agency_id } : null;
-    throw new Error('Supabase adapter not wired yet');
+    const { data, error } = await (await sb()).from(col).select().eq('id', id).maybeSingle();
+    if (error) throw new Error('Supabase get failed: ' + error.message);
+    return data ? (col === 'agencies'
+      ? { ...data.data, id: data.id }
+      : { ...data.data, id: data.id, agency_id: data.agency_id }) : null;
   }
   async function supaCreate(col, data) {
-    // TODO(SUPABASE): stamp the agency and insert:
-    //   const rec = { ...data, id: data.id || uid(), created: todayISO() };
-    //   const { error } = await (await sb()).from(col)
-    //     .insert({ id: rec.id, agency_id: rec.agency_id || null, data: rec });
-    //   if (error) throw error;
-    //   return rec;
-    throw new Error('Supabase adapter not wired yet');
+    const rec = { ...data, id: data.id || uid(), created: todayISO() };
+    const { error } = await (await sb()).from(col)
+      .insert(col === 'agencies' ? { id: rec.id, data: rec } : { id: rec.id, agency_id: rec.agency_id || null, data: rec });
+    if (error) throw new Error('Supabase create failed: ' + error.message);
+    return col === 'agencies' ? rec : { ...rec, agency_id: rec.agency_id || null };
   }
   async function supaUpdate(col, id, patch) {
-    // TODO(SUPABASE):
-    //   const cur = await supaGet(col, id);
-    //   const rec = { ...cur, ...patch, updated: todayISO() };
-    //   const { error } = await (await sb()).from(col).update({ data: rec }).eq('id', id);
-    //   if (error) throw error;
-    //   return rec;
-    throw new Error('Supabase adapter not wired yet');
+    const cur = await supaGet(col, id);
+    if (!cur) return null;
+    const rec = { ...cur, ...patch, updated: todayISO() };
+    const { error } = await (await sb()).from(col)
+      .update(col === 'agencies' ? { data: rec } : { data: rec, agency_id: rec.agency_id || null })
+      .eq('id', id);
+    if (error) throw new Error('Supabase update failed: ' + error.message);
+    return rec;
   }
   async function supaRemove(col, id) {
-    // TODO(SUPABASE):
-    //   const { error } = await (await sb()).from(col).delete().eq('id', id);
-    //   if (error) throw error;
-    //   return true;
-    throw new Error('Supabase adapter not wired yet');
+    const { error } = await (await sb()).from(col).delete().eq('id', id);
+    if (error) throw new Error('Supabase remove failed: ' + error.message);
+    return true;
   }
 
   /* ---------- public interface ---------- */
@@ -161,6 +174,14 @@ const API = (() => {
 
   return {
     session,   // app.js sets: { userId, agencyId, role, asAgencyId }
+    supa:   useSupa,   // true when the app talks to Supabase
+    sb:     sb,        // the supabase-js client (auth, storage, functions)
+    invoke: async (fn, body) => {   // call an edge function with the caller's auth
+      const s = await sb();
+      const { data, error } = await s.functions.invoke(fn, { body });
+      if (error) return { ok: false, error: error.message };
+      return data;
+    },
     list:   (col, match) => useSupa() ? supaList(col, match)   : localList(col, match),
     get:    (col, id)     => useSupa() ? supaGet(col, id)      : localGet(col, id),
     create: (col, data)   => useSupa() ? supaCreate(col, data) : localCreate(col, data),
@@ -176,7 +197,7 @@ const API = (() => {
          await s.storage.from('uploads').upload(path, file);
          const { data } = s.storage.from('uploads').getPublicUrl(path);
          return { name: file.name, type: file.type, url: data.publicUrl };  */
-    saveFile: (file) => new Promise((resolve, reject) => {
+    saveFile: (file) => useSupa() ? supaSaveFile(file) : new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve({ name: file.name, type: file.type, url: reader.result });
       reader.onerror = reject;

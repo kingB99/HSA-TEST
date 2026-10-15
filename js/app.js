@@ -506,8 +506,18 @@ function showApp() {
 }
 
 /* ---------- login ---------- */
+const SUPA = () => API.supa();   // true when the app talks to Supabase
+async function supaProfileByUid(uid) {
+  const prof = await API.get('users', uid);
+  return prof ? { ...prof, id: uid } : null;
+}
+function supaLoginHint() {
+  $('#login-error').textContent = 'Invalid email or password.';
+  $('#login-hint').textContent = 'Recently added? Check your email for the invitation to set your password first.';
+}
 function openLogin() {
   $('#login-error').textContent = '';
+  $('#login-hint').textContent = '';
   $('#np-error').textContent = '';
   $('#fr-error').textContent = '';
   $('#np1').value = ''; $('#np2').value = '';
@@ -515,7 +525,9 @@ function openLogin() {
   $('#pw-row').classList.remove('hidden');
   State.pendingLogin = null;
   // no accounts at all yet: first run setup instead of sign-in
-  const firstRun = JSON.parse(localStorage.getItem('hse_users') || '[]').length === 0;
+  // (Supabase mode: owner setup only at #/setup, it is rejected once any account exists)
+  const firstRun = SUPA() ? location.hash === '#/setup'
+    : JSON.parse(localStorage.getItem('hse_users') || '[]').length === 0;
   $('#first-run').classList.toggle('hidden', !firstRun);
   $('#login-form').classList.toggle('hidden', firstRun);
   $('#login-overlay').classList.remove('hidden');
@@ -527,8 +539,19 @@ function openLoginHidden() { openLogin(); $('#login-overlay').classList.add('hid
 $('#login-form').onsubmit = async e => {
   e.preventDefault();
   const fd = new FormData(e.target);
-  const users = JSON.parse(localStorage.getItem('hse_users') || '[]');
   const em = String(fd.get('username') || '').trim().toLowerCase();
+  if (SUPA()) {
+    try {
+      const s = await API.sb();
+      const { data, error } = await s.auth.signInWithPassword({ email: em, password: String(fd.get('password') || '') });
+      if (error || !data.user) { supaLoginHint(); return; }
+      const prof = await supaProfileByUid(data.user.id);
+      if (!prof) { await s.auth.signOut(); $('#login-error').textContent = 'No access profile for this account. Contact your administrator.'; return; }
+      await finishLogin(prof);
+    } catch (err) { $('#login-error').textContent = 'Sign-in failed: ' + err.message; }
+    return;
+  }
+  const users = JSON.parse(localStorage.getItem('hse_users') || '[]');
   const cand = users.find(x => (x.username || '').toLowerCase() === em
                             || (x.email || '').toLowerCase() === em);
   if (cand && !cand.password) {
@@ -572,6 +595,21 @@ $('#btn-first-run').onclick = async () => {
   }
   if (p1.length < 6) { $('#fr-error').textContent = 'Use at least 6 characters.'; return; }
   if (p1 !== p2) { $('#fr-error').textContent = 'Passwords do not match.'; return; }
+  if (SUPA()) {
+    const res = await API.invoke('manage-user', {
+      action: 'bootstrap', email: em, fullName: name, password: p1 });
+    if (!res || !res.ok) {
+      $('#fr-error').textContent = (res && res.error) || 'Could not create the owner account.';
+      return;
+    }
+    const s = await API.sb();
+    const { error } = await s.auth.signInWithPassword({ email: em, password: p1 });
+    if (error) { $('#fr-error').textContent = 'Owner created. Sign in with your email and password.'; return; }
+    const { data: { user } } = await s.auth.getUser();
+    const prof = await supaProfileByUid(user.id);
+    if (prof) { toast('Owner account created'); await finishLogin(prof); }
+    return;
+  }
   const u = await API.create('users', {
     fullName: name, email: em, username: em.split('@')[0],
     password: p1, role: 'SUPER_ADMIN', agency_id: null });
@@ -591,6 +629,7 @@ $('#btn-np-set').onclick = async () => {
   await finishLogin(rec || u);
 };
 $('#btn-logout').onclick = async () => {
+  if (SUPA()) { try { await (await API.sb()).auth.signOut(); } catch (e) {} }
   State.user = null; saveSession(); setSession(null);
   await applyBranding();
   location.hash = '#/home'; route();
@@ -822,7 +861,7 @@ function openForm(mod, record) {
       ].concat(data.trainings || []);
     }
     const col = cfg.collection || mod;
-    if (mod === 'user_accounts' && isNew) data.password = '';
+    if (mod === 'user_accounts' && isNew && !API.supa()) data.password = '';
     if (mod === 'user_accounts') {
       data.email = (data.email || '').toLowerCase().trim();
       const dupe = (await API.list('users', {}))
@@ -830,11 +869,31 @@ function openForm(mod, record) {
       if (dupe) return toast('That email already has a login');
       if (State.user.role !== 'SUPER_ADMIN' && data.role === 'SUPER_ADMIN') data.role = 'EMPLOYEE';
     }
+    if (mod === 'user_accounts' && isNew && API.supa()) {
+      // Supabase: the account is created by the manage-user edge function;
+      // Supabase emails the person an invitation to set their password.
+      const res = await API.invoke('manage-user', {
+        action: 'create', email: data.email, fullName: data.fullName || '',
+        role: data.role || 'EMPLOYEE',
+        agencyId: API.session.asAgencyId || API.session.agencyId });
+      if (!res || !res.ok) return toast((res && res.error) || 'Could not create the login');
+      FORM = null; closeModal();
+      toast('Login created. An invitation email was sent to set the password.');
+      route(); return;
+    }
     const saved = isNew ? await API.create(col, data) : await API.update(col, record.id, data);
     if (mod === 'agencies' && isNew && data.adminEmail) {
       const aEmail = (data.adminEmail || '').toLowerCase().trim();
       const dupe = (await API.list('users', {})).find(u => u.email === aEmail);
       if (dupe) toast('That admin email already has a login');
+      else if (API.supa()) {
+        const res = await API.invoke('manage-user', {
+          action: 'create', email: aEmail, fullName: data.adminName || '',
+          role: 'AGENCY_ADMIN', agencyId: saved.id });
+        toast(res && res.ok
+          ? 'Agency and first admin created. An invitation email was sent to set the password.'
+          : (res && res.error) || 'Agency created, but the admin account failed.');
+      }
       else {
         const admin = await API.create('users', { fullName: data.adminName || '', email: aEmail,
           username: aEmail, role: 'AGENCY_ADMIN', password: '' });
@@ -1593,10 +1652,10 @@ async function renderSettings() {
           <td>${esc(u.fullName || u.username || '')}${u.id === State.user.id ? ' (you)' : ''}</td>
           <td>${esc(u.email || '')}</td>
           <td>${esc(u.role || '')}</td>
-          <td>${u.password ? 'Set' : 'Not set yet'}</td>
+          <td>${u.password ? 'Set' : SUPA() ? 'Supabase Auth' : 'Not set yet'}</td>
           <td class="right">${u.role === 'SUPER_ADMIN' && State.user.role !== 'SUPER_ADMIN' ? '' :
             `<button class="btn btn-sm" data-edit-user="${u.id}">Edit</button>
-             ${u.password && u.id !== State.user.id ? `<button class="btn btn-sm" data-reset-user="${u.id}">Reset password</button>` : ''}
+             ${(u.password || SUPA()) && u.id !== State.user.id ? `<button class="btn btn-sm" data-reset-user="${u.id}">Reset password</button>` : ''}
              ${u.id === State.user.id ? '' : `<button class="btn btn-sm" data-del-user="${u.id}">Remove</button>`}`}</td>
         </tr>`).join('')}
         </tbody></table></div>
@@ -1619,18 +1678,44 @@ async function renderSettings() {
   $('#view').querySelectorAll('[data-del-user]').forEach(b =>
     b.onclick = async () => {
       if (!confirm('Remove this login? The person will no longer be able to sign in.')) return;
+      if (SUPA()) {
+        const res = await API.invoke('manage-user', { action: 'remove', userId: b.dataset.delUser });
+        if (!res || !res.ok) { toast((res && res.error) || 'Could not remove the login'); return; }
+        toast('Login removed'); route(); return;
+      }
       await API.remove('users', b.dataset.delUser);
       toast('Login removed'); route();
     });
   $('#view').querySelectorAll('[data-reset-user]').forEach(b =>
     b.onclick = async () => {
-      if (!confirm('Reset this password? The person sets a new one at their next sign-in.')) return;
+      if (!confirm('Reset this password? The person will get an email to set a new one.')) return;
+      if (SUPA()) {
+        const rec = await API.get('users', b.dataset.resetUser);
+        const s = await API.sb();
+        const { error } = await s.auth.resetPasswordForEmail(rec.email || '');
+        toast(error ? 'Could not send the reset email' : 'Password reset email sent');
+        route(); return;
+      }
       await API.update('users', b.dataset.resetUser, { password: '' });
       toast('Password reset'); route();
     });
 }
 
 /* ================= INIT ================= */
-loadSession();
 window.addEventListener('hashchange', route);
-route();
+(async () => {
+  if (SUPA()) {
+    try {
+      const s = await API.sb();
+      const { data: { session } } = await s.auth.getSession();
+      if (session && session.user) {
+        const prof = await supaProfileByUid(session.user.id);
+        if (prof) { State.user = prof; setSession(prof); }
+        else await s.auth.signOut();
+      }
+    } catch (e) { /* stay signed out */ }
+  } else {
+    loadSession();
+  }
+  route();
+})();

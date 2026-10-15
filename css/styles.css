@@ -199,3 +199,4 @@ input[type="color"] { padding: 2px; height: 38px; }
 .erg-list { margin: 6px 0 14px 0; padding-left: 22px; }
 .erg-list li { margin-bottom: 5px; }
 #erg-search { width: 100%; max-width: 420px; }
+.login-hint { font-size: 13px; color: #64748b; margin: 2px 0 8px; }

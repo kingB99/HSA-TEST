@@ -34,9 +34,7 @@ declare
 begin
   foreach t in array array[
     'settings','events','corrective_actions','inspections','equipment',
-    'ppe','committees','follow_ups','documents','sites','employees',
-    'news','emergency_directory','first_aiders','emergency_procedures',
-    'planning','feedback'
+    'ppe','committees','follow_ups','documents','sites','employees'
   ]
   loop
     execute format($f$
@@ -71,9 +69,19 @@ returns boolean language sql stable security definer as $$
   from public.users where id = auth.uid();
 $$;
 
+-- can the CALLER administer an agency (needed to list its accounts)?
+create or replace function is_agency_admin()
+returns boolean language sql stable security definer as $$
+  select coalesce(
+    (public.users.data->>'role') in ('AGENCY_ADMIN','SUPER_ADMIN'), false)
+  from public.users where id = auth.uid();
+$$;
+
 -- ---------- agencies: readable by all signed-in users,
 -- writable only by SUPER_ADMIN ----------
 alter table agencies enable row level security;
+drop policy if exists agencies_read on agencies;
+drop policy if exists agencies_write on agencies;
 create policy agencies_read on agencies for select
   using (auth.uid() is not null);
 create policy agencies_write on agencies for all
@@ -82,11 +90,14 @@ create policy agencies_write on agencies for all
 -- ---------- users: a user sees their own profile; agency admins
 -- see their agency's; SUPER_ADMIN sees all ----------
 alter table users enable row level security;
+drop policy if exists users_self on users;
+drop policy if exists users_agency on users;
+drop policy if exists users_super on users;
 create policy users_self on users for select
   using (id = auth.uid());
 create policy users_agency on users for select
   using (agency_id is not null and agency_id = current_user_agency()
-         and (public.users.data->>'role') in ('AGENCY_ADMIN'));
+         and is_agency_admin());
 create policy users_super on users for all
   using (is_super_admin()) with check (is_super_admin());
 
@@ -97,13 +108,12 @@ declare
 begin
   foreach t in array array[
     'settings','events','corrective_actions','inspections','equipment',
-    'ppe','committees','follow_ups','documents','sites','employees',
-    'news','emergency_directory','first_aiders','emergency_procedures',
-    'planning','feedback'
+    'ppe','committees','follow_ups','documents','sites','employees'
   ]
   loop
     execute format($f$
       alter table %I enable row level security;
+      drop policy if exists %I_tenant_isolation on %I;
       create policy %I_tenant_isolation on %I for all
         using (
           is_super_admin()
