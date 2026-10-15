@@ -455,6 +455,14 @@ async function route() {
   if (!$('#print-header')) $('#view').insertAdjacentHTML('beforebegin', '<div class="print-header" id="print-header"><img src="img/logo-small.png" alt=""> Pitman Safety Solutions · HSE Manager</div>');
   $('#page-title').textContent = MODULES[mod].label;
   $('#topbar-actions').innerHTML = '';
+  $('#top-notify').innerHTML = '';
+  if (['SUPER_ADMIN','AGENCY_ADMIN','SUPERVISOR'].includes(State.user.role)) {
+    const alerts = await certAlerts();
+    if (alerts.length) {
+      $('#top-notify').innerHTML = `<button class="btn" id="btn-cert-alerts">Notifications (${alerts.length})</button>`;
+      $('#btn-cert-alerts').onclick = openCertAlerts;
+    }
+  }
   const view = $('#view');
   try {
     switch (mod) {
@@ -550,8 +558,7 @@ async function finishLogin(u) {
       return;
     }
   }
-  $('#login-overlay').classList.add('hidden');
-  openLogin();
+  openLoginHidden();   // reset panels and keep the overlay closed
   location.hash = u.role === 'SUPER_ADMIN' ? '#/agencies' : '#/dashboard';
   route();
 }
@@ -641,22 +648,15 @@ document.body.addEventListener('change', async e => {
 async function renderModuleList(mod, opts = {}) {
   const cfg = MODULES[mod];
   let rows = await API.list(mod, {});
-  let sdsEmpId = null;
   if (mod === 'documents') {
     // confidentiality enforcement by role
     const isAdmin = ['SUPER_ADMIN','AGENCY_ADMIN'].includes(State.user.role);
     const rank = isAdmin ? 3 : State.user.role === 'SUPERVISOR' ? 2 : 1;
     const lvl = { Public: 1, Internal: 2, Restricted: 3 };
-    if (State.user.role === 'EMPLOYEE') {
-      // SDS sheets: employees see only the sheets an admin granted them
-      const emps = await API.list('employees', {});
-      const me = emps.find(e => (e.email || '').toLowerCase() ===
-        ((State.user || {}).email || '').toLowerCase());
-      sdsEmpId = me ? me.id : null;
-    }
     rows = rows.filter(r => isAdmin
       || (lvl[r.confidentiality] || 1) <= rank
-      || (r.category === 'SDS' && sdsEmpId && (r.grantedTo || []).includes(sdsEmpId)));
+      // SDS sheets: an employee sees only the sheets their account was granted
+      || (r.category === 'SDS' && (r.grantedTo || []).includes(State.user.id)));
   }
   let q = '';
   const view = $('#view');
@@ -664,7 +664,9 @@ async function renderModuleList(mod, opts = {}) {
     `<input id="mod-search" placeholder="Search…">
      <button class="btn btn-primary" id="btn-new">New</button>
      <button class="btn" id="btn-print">Print</button>
-     ${mod === 'events' ? '<a class="btn" href="#/events/kpi">KPI report</a>' : ''}`;
+     ${mod === 'events' ? '<a class="btn" href="#/events/kpi">KPI report</a>' : ''}
+     ${mod === 'employees' && ['SUPER_ADMIN','AGENCY_ADMIN'].includes(State.user.role)
+       ? '<button class="btn" id="btn-bulk">Bulk assign</button>' : ''}`;
 
   const draw = () => {
     const filtered = rows.filter(r => !q ||
@@ -696,6 +698,7 @@ async function renderModuleList(mod, opts = {}) {
   };
   $('#btn-new').onclick = () => openForm(mod);
   $('#btn-print').onclick = () => window.print();
+  if ($('#btn-bulk')) $('#btn-bulk').onclick = openBulkAssign;
   draw();
 }
 
@@ -884,29 +887,30 @@ async function renderERG() {
   $('#page-title').textContent = 'ERG';
   $('#topbar-actions').innerHTML = '<button class="btn" id="erg-print">Print</button>';
   let q = '';
+  // static shell: the search input is rendered once so typing keeps focus
+  $('#view').innerHTML = `
+    <div class="card"><h3>Emergency Response Guidebook</h3>
+    <p class="muted">Full guidebook: search by UN number or material name, then open the response guide.
+    All 62 guide pages and the complete material index are included. Distances for toxic inhalation
+    hazards show on the guide page.</p>
+    <input id="erg-search" placeholder="UN number or material name, for example 1203 or chlorine">
+    <p class="muted mt" id="erg-count"></p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>UN number</th><th>Material</th><th>Guide</th><th>Toxic inhalation hazard</th><th></th></tr></thead>
+      <tbody id="erg-body"></tbody></table></div>
+    </div>
+    <div id="erg-detail"></div>`;
+  $('#erg-search').onsubmit = e => e.preventDefault();
   const draw = () => {
     const matches = ergSearch(q);
-    $('#view').innerHTML = `
-      <div class="card"><h3>Emergency Response Guidebook</h3>
-      <p class="muted">Full guidebook: search by UN number or material name, then open the response guide.
-      All 62 guide pages and the complete material index are included. Distances for toxic inhalation
-      hazards show on the guide page.</p>
-      <input id="erg-search" value="${esc(q)}" placeholder="UN number or material name, for example 1203 or chlorine">
-      <p class="muted mt">Showing ${matches.length}${matches.length === 100 ? '+' : ''} of ${ERG_INDEX.length} materials.</p>
-      <div class="table-wrap"><table>
-        <thead><tr><th>UN number</th><th>Material</th><th>Guide</th><th>Toxic inhalation hazard</th><th></th></tr></thead>
-        <tbody>
-        ${matches.map(m => `<tr class="clickable" data-erg-un="${esc(m[0])}" data-erg-guide="${m[2]}">
-          <td>${esc(m[0])}</td><td>${esc(m[1])}</td><td>${esc(String(m[2]))}</td>
-          <td>${m[3] ? 'Yes' : ''}</td>
-          <td class="right"><button class="btn btn-sm" data-erg-open="1">Open guide</button></td></tr>`).join('')
-          || '<tr><td colspan="99" class="muted">No materials found.</td></tr>'}
-        </tbody></table></div>
-      </div>
-      <div id="erg-detail"></div>`;
-    $('#erg-search').oninput = e => { q = e.target.value; draw(); };
-    $('#erg-search').onsubmit = e => e.preventDefault();
-    $('#view').querySelectorAll('[data-erg-un]').forEach(tr =>
+    $('#erg-count').textContent = 'Showing ' + matches.length + (matches.length === 100 ? '+' : '') +
+      ' of ' + ERG_INDEX.length + ' materials.';
+    $('#erg-body').innerHTML = matches.map(m => `<tr class="clickable" data-erg-un="${esc(m[0])}" data-erg-guide="${m[2]}">
+      <td>${esc(m[0])}</td><td>${esc(m[1])}</td><td>${esc(String(m[2]))}</td>
+      <td>${m[3] ? 'Yes' : ''}</td>
+      <td class="right"><button class="btn btn-sm" data-erg-open="1">Open guide</button></td></tr>`).join('')
+      || '<tr><td colspan="99" class="muted">No materials found.</td></tr>';
+    $('#erg-body').querySelectorAll('[data-erg-un]').forEach(tr =>
       tr.onclick = () => {
         $('#erg-detail').innerHTML = ergDetailHTML(tr.dataset.ergUn, tr.dataset.ergGuide);
         $('#erg-print').onclick = () => window.print();
@@ -914,21 +918,23 @@ async function renderERG() {
       });
     $('#erg-print').onclick = () => window.print();
   };
+  $('#erg-search').oninput = e => { q = e.target.value; draw(); };
   draw();
 }
 
 /* ============ SDS ACCESS GRANTS (ADMIN TO EMPLOYEE) ============ */
 async function openSDSAccess(r) {
   if (!r) return;
-  const emps = await API.list('employees', {});
+  const users = (await API.list('users', {}))
+    .filter(u => u.role !== 'SUPER_ADMIN' && u.role !== 'AGENCY_ADMIN');
   const granted = r.grantedTo || [];
   openModal(`<h2>SDS access: ${esc(r.title)}</h2>
-    <p class="muted">Choose which employees can see this SDS sheet. Admins and supervisors always see it.
-    Employees see only the sheets they are granted here.</p>
+    <p class="muted">Choose which users can see this SDS sheet. Admins see every sheet;
+    everyone else sees only the sheets their account is granted here.</p>
     <form id="sds-access-form">
-      ${emps.map(e => `<div class="checkline"><input type="checkbox" data-emp="${e.id}" ${granted.includes(e.id) ? 'checked' : ''}>
-        ${esc(e.name)}${e.department ? ' (' + esc(e.department) + ')' : ''}</div>`).join('')
-        || '<p class="muted">No employees on file yet.</p>'}
+      ${users.map(u => `<div class="checkline"><input type="checkbox" data-user="${u.id}" ${granted.includes(u.id) ? 'checked' : ''}>
+        ${esc(u.fullName || '')} (${esc(u.role)}), ${esc(u.email || '')}</div>`).join('')
+        || '<p class="muted">No staff accounts yet. Add logins in Settings first.</p>'}
       <div class="row gap mt">
         <button class="btn btn-primary" type="submit">Save access</button>
         <button class="btn" type="button" id="sds-cancel">Cancel</button>
@@ -937,10 +943,99 @@ async function openSDSAccess(r) {
   $('#sds-cancel').onclick = () => { closeModal(); route(); };
   $('#sds-access-form').onsubmit = async ev => {
     ev.preventDefault();
-    const ids = [...document.querySelectorAll('[data-emp]:checked')].map(c => c.dataset.emp);
+    const ids = [...document.querySelectorAll('[data-user]:checked')].map(c => c.dataset.user);
     await API.update('documents', r.id, { grantedTo: ids });
     closeModal(); toast('SDS access saved'); route();
   };
+}
+
+/* ============ BULK TRAINING / CERTIFICATE ASSIGNMENT ============ */
+async function openBulkAssign() {
+  const emps = await API.list('employees', {});
+  openModal(`<h2>Bulk assign training or certificates</h2>
+    <p class="muted">The same entry is added to every employee you tick. Use Certificates for anything
+    with an expiry you want tracked; notifications use the expiry date.</p>
+    <form id="bulk-form">
+      <div class="form-grid mt">
+        <div><label>Type</label><select id="bulk-type"><option>Certificate</option><option>Training</option></select></div>
+        <div><label>Name</label><input id="bulk-name" required placeholder="for example WHMIS 2026"></div>
+        <div><label>Issuer</label><input id="bulk-issuer" placeholder="optional"></div>
+        <div><label>Date</label><input id="bulk-date" type="date" value="${todayISO()}"></div>
+        <div><label>Expiry</label><input id="bulk-expiry" type="date"></div>
+      </div>
+      <h3 class="mt">Employees</h3>
+      ${emps.map(e => `<div class="checkline"><input type="checkbox" data-emp="${e.id}">
+        ${esc(e.name)}${e.department ? ' (' + esc(e.department) + ')' : ''}</div>`).join('')
+        || '<p class="muted">No employees on file yet.</p>'}
+      <div class="row gap mt">
+        <button class="btn btn-primary" type="submit">Assign to selected</button>
+        <button class="btn" type="button" id="bulk-cancel">Cancel</button>
+      </div>
+    </form>`);
+  $('#bulk-cancel').onclick = () => closeModal();
+  $('#bulk-form').onsubmit = async ev => {
+    ev.preventDefault();
+    const ids = [...document.querySelectorAll('[data-emp]:checked')].map(c => c.dataset.emp);
+    if (!ids.length) return toast('Tick at least one employee');
+    const name = $('#bulk-name').value.trim();
+    if (!name) return toast('Enter a name');
+    const isCert = $('#bulk-type').value === 'Certificate';
+    const rec = isCert
+      ? { name, issuer: $('#bulk-issuer').value.trim(), issued: $('#bulk-date').value || todayISO(),
+          expiry: $('#bulk-expiry').value || '' }
+      : { name, date: $('#bulk-date').value || todayISO(), expiry: $('#bulk-expiry').value || '' };
+    for (const id of ids) {
+      const emp = emps.find(e => e.id === id);
+      if (!emp) continue;
+      if (isCert) { emp.certificates = emp.certificates || []; emp.certificates.push(rec); }
+      else { emp.trainings = emp.trainings || []; emp.trainings.push(rec); }
+      await API.update('employees', id,
+        { certificates: emp.certificates || [], trainings: emp.trainings || [] });
+    }
+    closeModal(); toast('Assigned to ' + ids.length + ' employee(s)');
+    route();
+  };
+}
+
+/* ============ CERTIFICATE EXPIRY NOTIFICATIONS ============ */
+async function certAlerts() {
+  const emps = await API.list('employees', {});
+  const alerts = [];
+  emps.forEach(e => (e.certificates || []).forEach(c => {
+    if (!c.expiry) return;
+    const d = daysUntil(c.expiry);
+    if (d <= 30) alerts.push({ emp: e, cert: c, days: d });
+  }));
+  alerts.sort((x, y) => x.days - y.days);
+  return alerts;
+}
+function certStatusLabel(d) {
+  return d < 0 ? 'EXPIRED ' + (-d) + ' day(s) ago' : d === 0 ? 'expires today' : d + ' day(s) left';
+}
+async function openCertAlerts() {
+  const alerts = await certAlerts();
+  openModal(`<h2>Certificate notifications</h2>
+    <p class="muted">Shows certificates at 1 month, 2 weeks, 1 week, 3 days, 1 day, and day of expiry.
+    The list stays until the certificate is renewed. When the Supabase backend is connected these
+    reminders are also sent to the supervisor by email, every day, at the same thresholds.</p>
+    ${alerts.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>Employee</th><th>Certificate</th><th>Expiry</th><th>Status</th><th></th></tr></thead>
+      <tbody>${alerts.map(al => {
+        const sup = (al.emp.supervisor || '').trim();
+        const subject = encodeURIComponent('Certificate expiring: ' + al.cert.name + ' (' + al.emp.name + ')');
+        const body = encodeURIComponent(al.emp.name + "'s certificate " + al.cert.name +
+          ' expires on ' + al.cert.expiry + ' (' + certStatusLabel(al.days) +
+          '). Please schedule the renewal.');
+        return `<tr><td>${esc(al.emp.name)}</td><td>${esc(al.cert.name)}</td>
+          <td>${fmt(al.cert.expiry)}</td>
+          <td><span class="badge ${al.days < 0 ? 'bad' : al.days <= 7 ? 'warn' : 'ok'}">${esc(certStatusLabel(al.days))}</span></td>
+          <td class="right">${sup
+            ? `<a class="btn btn-sm" href="mailto:${encodeURIComponent(sup)}?subject=${subject}&body=${body}">Email supervisor</a>`
+            : '<span class="muted">No supervisor email</span>'}</td></tr>`;
+      }).join('')}</tbody></table></div>`
+      : '<p class="muted">No certificates are expiring soon. Nothing needs attention.</p>'}
+    <div class="row gap mt"><button class="btn" type="button" id="cert-close">Close</button></div>`);
+  $('#cert-close').onclick = () => closeModal();
 }
 
 /* ================= 6. DASHBOARD / KPIs ================= */

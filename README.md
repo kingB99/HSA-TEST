@@ -17,11 +17,24 @@ documentation file.
   (GitHub Pages, Netlify, Vercel, or your own server). There is nothing to
   build or configure. Point the site at the folder so `index.html` is the
   entry page.
-- GitHub Pages example:
-  1. Create a repository, then from the folder run
-     `git init && git add . && git commit -m "HSE Manager" && git push`.
-  2. In the repository: Settings, Pages, choose the main branch. The hosted
-     URL serves the app.
+- Deploying with your own domain (recommended, free):
+  1. Push this folder to a GitHub repository.
+  2. Sign up at netlify.com (or cloudflare.com, pages section). Both are free,
+     work with private repositories, and give you HTTPS automatically.
+  3. In the dashboard: add a new site, import from GitHub, pick the
+     repository. No build settings are needed: the publish directory is the
+     repository root and there is no build command.
+  4. In the site settings: add your domain under custom domains. The host
+     shows you the DNS records to create.
+  5. At the company where you bought the domain: add those records
+     (usually a CNAME for www and A or ALIAS records for the bare domain).
+     HTTPS is issued automatically within minutes.
+  - GitHub Pages also works, but on the free plan the repository must be
+    public. Netlify and Cloudflare Pages keep it private.
+- Recommended order to go live: host the frontend first (above), then
+  connect Supabase (section 5), then redeploy. Until Supabase is connected,
+  each browser keeps its own data; for real use by several staff, Supabase
+  must be connected.
 - `single-file-standalone.html` is the same app packed into one file (styles,
   scripts and logo embedded). Use it only for quick single-file distribution;
   prefer the folder version for hosting and updates.
@@ -64,11 +77,20 @@ All data modules follow the same pattern: **New, Search, List, Print**.
 - **Corrective actions, Inspections, Equipment, PPE, Committees,
   Follow-ups, Documents, Sites, Employees.**
 - **Employees:** certificate tracking with expiry, training tracking,
-  new-hire training template, asset tracking.
+  new-hire training template, asset tracking, and **Bulk assign** (admins):
+  the same training entry or certificate added to every employee you tick,
+  in one step.
+- **Certificate expiry notifications:** supervisors and admins see a
+  **Notifications** button in the top bar whenever any certificate is at
+  1 month, 2 weeks, 1 week, 3 days, 1 day, or day of expiry. The list stays
+  until the certificate is renewed, and each row has an email link to the
+  employee's supervisor. (Automatic daily emails need the backend; see the
+  note at the end of section 5.)
 - **Documents with SDS access control:** SDS sheets (category SDS,
   Restricted) are hidden by default. An admin presses **Access** on an SDS
-  row and ticks which employees may see that sheet. Employees see only the
-  sheets they were granted.
+  row and ticks which staff accounts may see that sheet. A user sees only
+  the sheets their own account was granted; no matching between logins and
+  employee records is needed.
 - **ERG (Emergency Response Guidebook):** the complete guidebook, built in.
   Search by UN number or material name, open any of the 62 guide pages
   (Potential hazards, Public safety, Emergency response, First aid), with
@@ -121,10 +143,18 @@ Steps (the same notes are inline at the top of `js/api.js`):
 Two backend rules the database must enforce the same way the app does:
 
 - **SDS grants:** a user may see a category SDS, Restricted document only
-  if their employee record id (matched by login email) is in the row's
-  `grantedTo` array.
+  if their own user id is in the row's `grantedTo` array.
 - **Tenancy:** every table's RLS policy compares `agency_id` on the row
   with `agency_id` on the signer's profile.
+
+**Certificate reminder emails (recommended once Supabase is connected):**
+schedule one daily job (a Supabase Edge Function with pg_cron, or any cron
+calling a small endpoint) that lists certificates and emails the employee's
+supervisor whenever an expiry is exactly 30, 14, 7, 3, 1, or 0 days away.
+The in-app Notifications button (see section 3) already shows the same
+list; the email job makes the reminder arrive without anyone opening the
+app. Both use the `supervisor` field on the employee record as the
+recipient.
 
 If you use an AI coding tool for the wiring, paste this file and
 `js/api.js` into it; those two files describe the entire integration
