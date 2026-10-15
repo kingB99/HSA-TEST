@@ -67,6 +67,8 @@ module sets; an agency admin fine-tunes these in Settings, Permissions).
 ## 3. Modules
 
 All data modules follow the same pattern: **New, Search, List, Print**.
+Every form marks the information that matters with * and will not save
+without it.
 
 - **Dashboard:** KPI tiles, charts (events by type and by month), overdue
   follow-ups, certificates expiring soon.
@@ -74,8 +76,14 @@ All data modules follow the same pattern: **New, Search, List, Print**.
   impacts, follow-ups, investigation, risk matrix, corrective actions,
   multimedia, review and submit), per-event KPI plus a KPI report across all
   events.
-- **Corrective actions, Inspections, Equipment, PPE, Committees,
-  Follow-ups, Documents, Sites, Employees.**
+- **Inspections, with assignment:** an admin or supervisor creates an
+  inspection (site, area, checklist, due date) and assigns it to a staff
+  account. Assignees see only their own inspections, complete the
+  checklist, enter the overall result and findings, and send it back.
+  Completed inspections appear in the reviewer's **Notifications** until
+  reviewed; results and findings stay on the record.
+- **Corrective actions, Equipment, PPE, Committees, Follow-ups,
+  Documents, Sites, Employees.**
 - **Employees:** certificate tracking with expiry, training tracking,
   new-hire training template, asset tracking, and **Bulk assign** (admins):
   the same training entry or certificate added to every employee you tick,

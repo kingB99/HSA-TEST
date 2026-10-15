@@ -105,23 +105,30 @@ const MODULES = {
       { k:'status', label:'Status', type:'select', options:['draft','submitted'] }
     ]},
   corrective_actions:{ label: 'Corrective actions', icon: '', sep: 'Main', roles: ['admin','manager'],
-    columns: [['ref','Ref'],['title','Title'],['source','Source event'],['owner','Owner'],['dueDate','Due'],['status','Status'],['cost','Cost']],
+    columns: [['ref','Ref'],['title','Title'],['priority','Priority'],['owner','Owner'],['dueDate','Due'],['status','Status'],['cost','Cost']],
     fields: [
       { k:'ref', label:'Ref (auto if blank)', type:'text' },
       { k:'title', label:'Title', type:'text', required:true },
-      { k:'source', label:'Source (event ref)', type:'text' },
-      { k:'owner', label:'Owner', type:'text' },
-      { k:'dueDate', label:'Due date', type:'date' },
+      { k:'priority', label:'Priority', type:'select', options:['High','Medium','Low'] },
+      { k:'source', label:'Source (event ref / inspection)', type:'text' },
+      { k:'description', label:'What happened and what must change', type:'textarea', full:true, required:true },
+      { k:'owner', label:'Owner', type:'text', required:true },
+      { k:'dueDate', label:'Due date', type:'date', required:true },
       { k:'status', label:'Status', type:'select', options:['Open','In progress','Closed'] },
+      { k:'verification', label:'Verification of completion (who checked, when)', type:'textarea', full:true },
       { k:'cost', label:'Cost', type:'number' }
     ]},
   inspections:       { label: 'Inspections', icon: '', sep: 'Main', roles: ['admin','manager','staff'],
-    columns: [['title','Title'],['site','Site'],['date','Date'],['inspector','Inspector'],['schedule','Schedule'],['archived','Archived']],
+    columns: [['title','Title'],['site','Site'],['assignedName','Assigned to'],['status','Status'],['date','Scheduled'],['dueDate','Due']],
     fields: [
       { k:'title', label:'Title', type:'text', required:true },
-      { k:'site', label:'Site', type:'text' },
-      { k:'date', label:'Date', type:'date', required:true },
-      { k:'inspector', label:'Inspector', type:'text' },
+      { k:'site', label:'Site', type:'text', required:true },
+      { k:'area', label:'Area / department', type:'text' },
+      { k:'date', label:'Scheduled date', type:'date', required:true },
+      { k:'dueDate', label:'Due date', type:'date', required:true },
+      { k:'assignedTo', label:'Assign to', type:'select', options:[] },
+      { k:'status', label:'Status', type:'select', options:['Assigned','In progress','Completed'] },
+      { k:'inspector', label:'Requested by', type:'text' },
       { k:'schedule', label:'Schedule', type:'select', options:['One-time','Weekly','Monthly','Quarterly','Annually'] },
       { k:'archived', label:'Archived', type:'checkbox' },
       { k:'items', label:'Checklist items', type:'repeater', sub:[
@@ -138,11 +145,13 @@ const MODULES = {
     columns: [['name','Name'],['serial','Serial'],['site','Site'],['type','Type'],['nextInspection','Next inspection']],
     fields: [
       { k:'name', label:'Name', type:'text', required:true },
-      { k:'serial', label:'Serial', type:'text' },
-      { k:'site', label:'Site', type:'text' },
-      { k:'type', label:'Type', type:'text' },
+      { k:'serial', label:'Serial', type:'text', required:true },
+      { k:'site', label:'Site', type:'text', required:true },
+      { k:'type', label:'Type', type:'select', options:['Mobile equipment','Fixed plant','Tool','Vehicle','Lifting gear','Other'] },
+      { k:'condition', label:'Condition', type:'select', options:['Good','Fair','Poor','Out of service'] },
+      { k:'frequency', label:'Inspection frequency', type:'select', options:['Weekly','Monthly','Quarterly','Annually'] },
       { k:'lastInspection', label:'Last inspection', type:'date' },
-      { k:'nextInspection', label:'Next inspection due', type:'date' },
+      { k:'nextInspection', label:'Next inspection due', type:'date', required:true },
       { k:'notes', label:'Notes', type:'textarea', full:true },
       { k:'media', label:'Media', type:'media' }
     ]},
@@ -150,7 +159,10 @@ const MODULES = {
     columns: [['item','Item'],['requirement','Requirement'],['stockQty','Stock'],['need','Need'],['lastInspection','Last inspection']],
     fields: [
       { k:'item', label:'Item', type:'text', required:true },
-      { k:'requirement', label:'Requirement / who needs it', type:'text', full:true },
+      { k:'requirement', label:'Requirement / who needs it', type:'text', full:true, required:true },
+      { k:'issuedTo', label:'Issued to', type:'text' },
+      { k:'issueDate', label:'Issue date', type:'date' },
+      { k:'condition', label:'Condition', type:'select', options:['Good','Replace','Out of stock'] },
       { k:'stockQty', label:'Stock qty', type:'number' },
       { k:'need', label:'Need (to order)', type:'number' },
       { k:'lastInspection', label:'Last inspection', type:'date' }
@@ -159,8 +171,10 @@ const MODULES = {
     columns: [['name','Name'],['nextMeeting','Next meeting']],
     fields: [
       { k:'name', label:'Name', type:'text', required:true },
-      { k:'members', label:'Members', type:'textarea', full:true },
-      { k:'nextMeeting', label:'Next meeting', type:'date' },
+      { k:'members', label:'Members', type:'textarea', full:true, required:true },
+      { k:'chair', label:'Chair', type:'text' },
+      { k:'frequency', label:'Meeting frequency', type:'select', options:['Monthly','Quarterly','Annually'] },
+      { k:'nextMeeting', label:'Next meeting', type:'date', required:true },
       { k:'meetingMinutesDoc', label:'Minutes document (name/ref)', type:'text' },
       { k:'notes', label:'Notes', type:'textarea', full:true }
     ]},
@@ -168,18 +182,22 @@ const MODULES = {
     columns: [['title','Title'],['source','Source'],['owner','Owner'],['dueDate','Due'],['status','Status']],
     fields: [
       { k:'title', label:'Title', type:'text', required:true },
-      { k:'source', label:'Source (event/inspection)', type:'text' },
-      { k:'owner', label:'Owner', type:'text' },
-      { k:'dueDate', label:'Due date', type:'date' },
-      { k:'status', label:'Status', type:'select', options:['Open','In progress','Closed'] }
+      { k:'source', label:'Source (event/inspection)', type:'text', required:true },
+      { k:'owner', label:'Owner', type:'text', required:true },
+      { k:'dueDate', label:'Due date', type:'date', required:true },
+      { k:'priority', label:'Priority', type:'select', options:['High','Medium','Low'] },
+      { k:'status', label:'Status', type:'select', options:['Open','In progress','Closed'] },
+      { k:'notes', label:'Notes', type:'textarea', full:true }
     ]},
   documents:         { label: 'Documents', icon: '', sep: 'Records', roles: ['admin','manager','staff'],
     columns: [['title','Title'],['category','Category'],['confidentiality','Confidentiality'],['version','Version']],
     fields: [
       { k:'title', label:'Title', type:'text', required:true },
-      { k:'category', label:'Category (SOP, policy, minutes…)', type:'text' },
-      { k:'confidentiality', label:'Confidentiality', type:'select', options:['Public','Internal','Restricted'] },
-      { k:'version', label:'Version', type:'text' },
+      { k:'category', label:'Category (SOP, policy, minutes, SDS)', type:'text', required:true },
+      { k:'confidentiality', label:'Confidentiality', type:'select', options:['Public','Internal','Restricted'], required:true },
+      { k:'version', label:'Version', type:'text', required:true },
+      { k:'owner', label:'Document owner', type:'text' },
+      { k:'reviewDate', label:'Next review date', type:'date' },
       { k:'notes', label:'Notes', type:'textarea', full:true },
       { k:'file', label:'File', type:'media' }
     ]},
@@ -201,13 +219,14 @@ const MODULES = {
     columns: [['name','Name'],['role','Role'],['site','Site'],['email','Email'],['hireDate','Hired']],
     fields: [
       { k:'name', label:'Name', type:'text', required:true },
-      { k:'role', label:'Role', type:'text' },
-      { k:'department', label:'Department', type:'text' },
-      { k:'site', label:'Site', type:'text' },
-      { k:'email', label:'Email', type:'text' },
+      { k:'role', label:'Role', type:'text', required:true },
+      { k:'department', label:'Department', type:'text', required:true },
+      { k:'site', label:'Site', type:'text', required:true },
+      { k:'email', label:'Email', type:'text', required:true },
       { k:'phone', label:'Phone', type:'text' },
-      { k:'supervisor', label:'Supervisor email', type:'text' },
-      { k:'hireDate', label:'Hire date', type:'date' },
+      { k:'emergencyContact', label:'Emergency contact (name and phone)', type:'text' },
+      { k:'supervisor', label:'Supervisor email', type:'text', required:true },
+      { k:'hireDate', label:'Hire date', type:'date', required:true },
       { k:'certificates', label:'Certificates (expiry tracked)', type:'repeater', sub:[
         { k:'name', label:'Certificate', type:'text' },
         { k:'issuer', label:'Issuer', type:'text' },
@@ -457,9 +476,10 @@ async function route() {
   $('#topbar-actions').innerHTML = '';
   $('#top-notify').innerHTML = '';
   if (['SUPER_ADMIN','AGENCY_ADMIN','SUPERVISOR'].includes(State.user.role)) {
-    const alerts = await certAlerts();
-    if (alerts.length) {
-      $('#top-notify').innerHTML = `<button class="btn" id="btn-cert-alerts">Notifications (${alerts.length})</button>`;
+    const [certs, ins] = await Promise.all([certAlerts(), inspectionAlerts()]);
+    const n = certs.length + ins.length;
+    if (n) {
+      $('#top-notify').innerHTML = `<button class="btn" id="btn-cert-alerts">Notifications (${n})</button>`;
       $('#btn-cert-alerts').onclick = openCertAlerts;
     }
   }
@@ -687,6 +707,8 @@ document.body.addEventListener('change', async e => {
 async function renderModuleList(mod, opts = {}) {
   const cfg = MODULES[mod];
   let rows = await API.list(mod, {});
+  if (mod === 'inspections' && State.user.role === 'EMPLOYEE')
+    rows = rows.filter(r => r.assignedTo === State.user.id);
   if (mod === 'documents') {
     // confidentiality enforcement by role
     const isAdmin = ['SUPER_ADMIN','AGENCY_ADMIN'].includes(State.user.role);
@@ -720,6 +742,8 @@ async function renderModuleList(mod, opts = {}) {
           <td class="right">${mod === 'documents' && r.category === 'SDS' &&
               ['SUPER_ADMIN','AGENCY_ADMIN'].includes(State.user.role) ?
               `<button class="btn btn-sm" data-sds-access="${r.id}">Access</button>` : ''}
+            ${mod === 'inspections' && r.assignedTo === State.user.id && r.status !== 'Completed' ?
+              `<button class="btn btn-primary btn-sm" data-ins-complete="${r.id}">Complete</button>` : ''}
             <button class="btn btn-sm" data-open-detail="${r.id}">Open</button></td>
         </tr>`).join('') || `<tr><td colspan="99" class="muted">No records. Click New to create one.</td></tr>`}
         </tbody></table></div>
@@ -731,6 +755,11 @@ async function renderModuleList(mod, opts = {}) {
       b.onclick = async e => {
         e.stopPropagation();
         openSDSAccess(await API.get('documents', b.dataset.sdsAccess));
+      });
+    view.querySelectorAll('[data-ins-complete]').forEach(b =>
+      b.onclick = async e => {
+        e.stopPropagation();
+        openCompleteInspection(await API.get('inspections', b.dataset.insComplete));
       });
     view.querySelectorAll('tr.clickable').forEach(tr =>
       tr.onclick = () => openRecord(mod, tr.dataset.id));
@@ -778,12 +807,18 @@ async function openRecord(mod, id) {
 }
 
 /* ---------- generic form (modal) ---------- */
-function openForm(mod, record) {
+async function openForm(mod, record) {
   const cfg = MODULES[mod];
   const isNew = !record;
   const data = record ? JSON.parse(JSON.stringify(record)) : {};
   for (const f of cfg.fields)
     if (['repeater','media'].includes(f.type) && !data[f.k]) data[f.k] = [];
+  if (mod === 'inspections') {
+    const users = (await API.list('users', {})).filter(u => u.role !== 'SUPER_ADMIN');
+    const f = cfg.fields.find(x => x.k === 'assignedTo');
+    f.options = [{ value: '', label: '(not assigned)' }]
+      .concat(users.map(u => ({ value: u.id, label: (u.fullName || u.email) + (u.role === 'SUPERVISOR' ? ' (Supervisor)' : '') })));
+  }
 
   FORM = { mod, data, isNew,
     render: () => {},
@@ -796,8 +831,10 @@ function openForm(mod, record) {
     const v = data[f.k] ?? '';
     const cls = f.full ? 'full' : '';
     let input;
-    if (f.type === 'select') input = `<select id="f_${f.k}">${(f.options || []).map(o =>
-      `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+    if (f.type === 'select') input = `<select id="f_${f.k}">${(f.options || []).map(o => {
+      const ov = typeof o === 'object' ? o.value : o, ol = typeof o === 'object' ? o.label : o;
+      return `<option value="${esc(ov)}" ${ov === v ? 'selected' : ''}>${esc(ol)}</option>`;
+    }).join('')}</select>`;
     else if (f.type === 'textarea') input = `<textarea id="f_${f.k}" rows="3">${esc(v)}</textarea>`;
     else if (f.type === 'checkbox') input = `<div class="checkline"><input id="f_${f.k}" type="checkbox" ${v ? 'checked' : ''}> ${f.label}</div>`;
     else input = `<input id="f_${f.k}" type="${f.type}" value="${esc(v)}">`;
@@ -808,8 +845,10 @@ function openForm(mod, record) {
     return `<div class="row gap mb" style="align-items:flex-start">
       ${f.sub.map(s => {
         if (s.type === 'select') return `<div style="flex:1"><label>${s.label}</label>
-          <select data-rep="${f.k}" data-idx="${i}" data-sub="${s.k}">${(s.options || []).map(o =>
-            `<option ${o === row[s.k] ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>`;
+          <select data-rep="${f.k}" data-idx="${i}" data-sub="${s.k}">${(s.options || []).map(o => {
+            const ov = typeof o === 'object' ? o.value : o, ol = typeof o === 'object' ? o.label : o;
+            return `<option value="${esc(ov)}" ${ov === row[s.k] ? 'selected' : ''}>${esc(ol)}</option>`;
+          }).join('')}</select></div>`;
         return `<div style="flex:1"><label>${s.label}</label>
           <input data-rep="${f.k}" data-idx="${i}" data-sub="${s.k}"
                  type="${s.type}" value="${esc(row[s.k] ?? '')}"></div>`;
@@ -850,6 +889,12 @@ function openForm(mod, record) {
     for (const f of cfg.fields)
       if (f.required && !data[f.k] && f.type !== 'checkbox')
         return toast('Required: ' + f.label);
+    if (mod === 'inspections') {
+      const users = await API.list('users', {});
+      const au = users.find(u => u.id === data.assignedTo);
+      data.assignedName = au ? (au.fullName || au.email) : '';
+      if (data.assignedTo && (!data.status || data.status === 'Assigned')) data.status = 'Assigned';
+    }
     if (mod === 'corrective_actions' && !data.ref)
       data.ref = 'CA-' + String((await API.list('corrective_actions', {})).length + 1).padStart(4, '0');
     if (mod === 'employees' && isNew && $('#newHireChk') && $('#newHireChk').checked) {
@@ -1008,6 +1053,75 @@ async function openSDSAccess(r) {
   };
 }
 
+/* ============ INSPECTION COMPLETION (ASSIGNEE) ============ */
+function openCompleteInspection(r) {
+  if (!r) return;
+  const items = (r.items && r.items.length) ? r.items : [{ text: 'Inspection carried out', result: 'na', note: '' }];
+  openModal(`<h2>Complete inspection: ${esc(r.title)}</h2>
+    <p class="muted">Site: ${esc(r.site || '')}${r.area ? ', ' + esc(r.area) : ''} ·
+    Scheduled: ${fmt(r.date)} · Due: ${fmt(r.dueDate)}</p>
+    <form id="ins-complete-form">
+      <h3 class="mt">Checklist</h3>
+      ${items.map((it, i) => `<div class="row gap mb" style="align-items:flex-end">
+        <div style="flex:2"><label>${esc(it.text)}</label>
+          <input type="hidden" data-cmp-text="${i}" value="${esc(it.text)}"></div>
+        <div style="flex:1"><label>Result</label>
+          <select data-cmp-result="${i}">
+            <option value="pass" ${it.result === 'pass' ? 'selected' : ''}>pass</option>
+            <option value="fail" ${it.result === 'fail' ? 'selected' : ''}>fail</option>
+            <option value="na" ${it.result === 'na' ? 'selected' : ''}>na</option>
+          </select></div>
+        <div style="flex:2"><label>Note</label>
+          <input data-cmp-note="${i}" value="${esc(it.note || '')}"></div>
+      </div>`).join('')}
+      <h3 class="mt">Overall result</h3>
+      <div class="form-grid mt">
+        <div><label>Result *</label>
+          <select id="cmp-result">
+            <option value="">Select result</option>
+            <option>Pass</option>
+            <option>Pass with findings</option>
+            <option>Fail</option>
+          </select></div>
+        <div><label>Completed date</label><input id="cmp-date" type="date" value="${todayISO()}"></div>
+      </div>
+      <div class="mt"><label>Findings (required unless result is Pass)</label>
+        <textarea id="cmp-findings" rows="4" placeholder="What was found, including anything that needs fixing"></textarea></div>
+      <div class="mt"><label>Notes for the supervisor</label>
+        <textarea id="cmp-notes" rows="3"></textarea></div>
+      <div class="login-error" id="cmp-error"></div>
+      <div class="row gap mt">
+        <button class="btn btn-primary" type="submit">Send to supervisor</button>
+        <button class="btn" type="button" id="cmp-cancel">Cancel</button>
+      </div>
+    </form>`);
+  $('#cmp-cancel').onclick = () => { closeModal(); route(); };
+  $('#ins-complete-form').onsubmit = async ev => {
+    ev.preventDefault();
+    const result = $('#cmp-result').value;
+    const findings = String($('#cmp-findings').value || '').trim();
+    $('#cmp-error').textContent = '';
+    if (!result) { $('#cmp-error').textContent = 'Select the overall result.'; return; }
+    if (!findings && result !== 'Pass') {
+      $('#cmp-error').textContent = 'Findings are required unless the result is Pass.'; return;
+    }
+    const items2 = items.map((it, i) => ({
+      text: it.text,
+      result: document.querySelector(`[data-cmp-result="${i}"]`).value,
+      note: document.querySelector(`[data-cmp-note="${i}"]`).value
+    }));
+    await API.update('inspections', r.id, {
+      items: items2, result, findings,
+      notes: $('#cmp-notes').value,
+      completedDate: $('#cmp-date').value || todayISO(),
+      status: 'Completed', reviewed: false
+    });
+    closeModal();
+    toast('Inspection completed and sent for review');
+    route();
+  };
+}
+
 /* ============ BULK TRAINING / CERTIFICATE ASSIGNMENT ============ */
 async function openBulkAssign() {
   const emps = await API.list('employees', {});
@@ -1057,6 +1171,11 @@ async function openBulkAssign() {
 }
 
 /* ============ CERTIFICATE EXPIRY NOTIFICATIONS ============ */
+async function inspectionAlerts() {
+  const ins = await API.list('inspections', {});
+  return ins.filter(i => i.status === 'Completed' && !i.reviewed)
+    .map(i => ({ inspection: i }));
+}
 async function certAlerts() {
   const emps = await API.list('employees', {});
   const alerts = [];
@@ -1072,11 +1191,21 @@ function certStatusLabel(d) {
   return d < 0 ? 'EXPIRED ' + (-d) + ' day(s) ago' : d === 0 ? 'expires today' : d + ' day(s) left';
 }
 async function openCertAlerts() {
-  const alerts = await certAlerts();
-  openModal(`<h2>Certificate notifications</h2>
-    <p class="muted">Shows certificates at 1 month, 2 weeks, 1 week, 3 days, 1 day, and day of expiry.
-    The list stays until the certificate is renewed. When the Supabase backend is connected these
-    reminders are also sent to the supervisor by email, every day, at the same thresholds.</p>
+  const [alerts, ins] = await Promise.all([certAlerts(), inspectionAlerts()]);
+  openModal(`<h2>Notifications</h2>
+    <p class="muted">Certificates at 1 month, 2 weeks, 1 week, 3 days, 1 day, and day of expiry,
+    plus inspections completed by staff that still need review. Items stay on this list
+    until renewed or reviewed.</p>
+    ${ins.length ? `<h3 class="mt">Completed inspections awaiting review</h3>
+      <div class="table-wrap"><table>
+      <thead><tr><th>Inspection</th><th>Site</th><th>Result</th><th>Completed</th><th></th></tr></thead>
+      <tbody>${ins.map(al => { const i = al.inspection;
+        return `<tr><td>${esc(i.title)}</td><td>${esc(i.site || '')}</td>
+          <td><span class="badge ${i.result === 'Fail' ? 'bad' : i.result === 'Pass' ? 'ok' : 'warn'}">${esc(i.result || '')}</span></td>
+          <td>${fmt(i.completedDate)}</td>
+          <td class="right"><button class="btn btn-sm" data-ins-review="${i.id}">Open</button></td></tr>`;
+      }).join('')}</tbody></table></div>` : ''}
+    <h3 class="mt">Certificates</h3>
     ${alerts.length ? `<div class="table-wrap"><table>
       <thead><tr><th>Employee</th><th>Certificate</th><th>Expiry</th><th>Status</th><th></th></tr></thead>
       <tbody>${alerts.map(al => {
@@ -1092,9 +1221,11 @@ async function openCertAlerts() {
             ? `<a class="btn btn-sm" href="mailto:${encodeURIComponent(sup)}?subject=${subject}&body=${body}">Email supervisor</a>`
             : '<span class="muted">No supervisor email</span>'}</td></tr>`;
       }).join('')}</tbody></table></div>`
-      : '<p class="muted">No certificates are expiring soon. Nothing needs attention.</p>'}
+      : '<p class="muted">No certificates are expiring soon.</p>'}
     <div class="row gap mt"><button class="btn" type="button" id="cert-close">Close</button></div>`);
   $('#cert-close').onclick = () => closeModal();
+  [...document.querySelectorAll('#modal-box [data-ins-review]')].forEach(b =>
+    b.onclick = () => { closeModal(); location.hash = '#/inspections/' + b.dataset.insReview; });
 }
 
 /* ================= 6. DASHBOARD / KPIs ================= */
@@ -1500,35 +1631,52 @@ async function renderEventDetail(id) {
 async function renderInspectionDetail(id) {
   const r = await API.get('inspections', id);
   if (!r) { toast('Not found'); location.hash = '#/inspections'; return; }
+  const mine = r.assignedTo === State.user.id;
+  const isMgr = ['SUPER_ADMIN','AGENCY_ADMIN','SUPERVISOR'].includes(State.user.role);
   $('#page-title').textContent = r.title || 'Inspection';
-  $('#topbar-actions').innerHTML = `<button class="btn btn-primary" id="ins-edit">Edit</button>
-    <button class="btn" id="ins-print">Print</button>`;
+  $('#topbar-actions').innerHTML =
+    `${r.status !== 'Completed' && mine ? '<button class="btn btn-primary" id="ins-complete">Complete</button>' : ''}
+     ${r.status === 'Completed' && !r.reviewed && isMgr ? '<button class="btn btn-primary" id="ins-review">Mark reviewed</button>' : ''}
+     ${State.user.role === 'EMPLOYEE' ? '' : '<button class="btn btn-primary" id="ins-edit">Edit</button>'}
+     <button class="btn" id="ins-print">Print</button>`;
   const items = r.items || [];
   const counts = { pass: 0, fail: 0, na: 0 };
   items.forEach(i => counts[i.result] = (counts[i.result] || 0) + 1);
   $('#view').innerHTML = `
     <div class="row gap wrap">
       <div class="card grow"><h3>Inspection</h3><dl class="kv">
-        <dt>Site</dt><dd>${esc(r.site || '')}</dd>
-        <dt>Date</dt><dd>${fmt(r.date)}</dd>
-        <dt>Inspector</dt><dd>${esc(r.inspector || '')}</dd>
+        <dt>Site</dt><dd>${esc(r.site || '')}${r.area ? ', ' + esc(r.area) : ''}</dd>
+        <dt>Scheduled</dt><dd>${fmt(r.date)}</dd>
+        <dt>Due</dt><dd>${fmt(r.dueDate)}</dd>
+        <dt>Assigned to</dt><dd>${esc(r.assignedName || '')}</dd>
+        <dt>Status</dt><dd>${statusBadge(r.status || 'Assigned')}</dd>
+        <dt>Requested by</dt><dd>${esc(r.inspector || '')}</dd>
         <dt>Schedule</dt><dd>${esc(r.schedule || '')}</dd>
         <dt>Archived</dt><dd>${r.archived ? 'Yes' : 'No'}</dd>
       </dl></div>
       <div class="card grow"><h3>Inspection results</h3>
-        ${barChart(Object.entries(counts).map(([label, value]) => ({ label, value })))}
+        ${r.result ? `<p>Overall result: <b>${statusBadge(r.result)}</b></p>
+        <p class="muted">Completed ${fmt(r.completedDate)}${r.reviewed ? ', reviewed by ' + esc(r.reviewedBy || '') + ' on ' + fmt(r.reviewedDate) : ', awaiting review'}</p>` : ''}
+        ${items.length ? barChart(Object.entries(counts).map(([label, value]) => ({ label, value }))) : ''}
         <h3 class="mt">Listed items out (failed)</h3>
         ${items.filter(i => i.result === 'fail').map(i => `<p>• ${esc(i.text)} ${i.note ? ': ' + esc(i.note) : ''}</p>`).join('') || '<p class="muted">No failed items.</p>'}
       </div>
     </div>
+    ${r.findings ? `<div class="card"><h3>Findings from the assignee</h3><p>${esc(r.findings)}</p></div>` : ''}
     <div class="card"><h3>Checklist</h3>
       <table><tr><th>Item</th><th>Result</th><th>Note</th></tr>
-      ${items.map(i => `<tr><td>${esc(i.text)}</td><td>${statusBadge(i.result)}</td><td>${esc(i.note || '')}</td></tr>`).join('')}
+      ${items.map(i => `<tr><td>${esc(i.text)}</td><td>${statusBadge(i.result)}</td><td>${esc(i.note || '')}</td></tr>`).join('') || '<tr><td colspan="99" class="muted">No checklist items.</td></tr>'}
       </table></div>
     <div class="card"><h3>Follow-ups</h3>
       ${(r.followUps || []).map(f => `<p>• ${esc(f.title)}, due ${fmt(f.dueDate)} (${esc(f.owner || '')})</p>`).join('') || '<p class="muted">None.</p>'}</div>
     <div class="card"><h3>Multimedia</h3>${mediaViewHTML(r.media) || '<p class="muted">None.</p>'}</div>`;
-  $('#ins-edit').onclick = () => openForm('inspections', r);
+  if ($('#ins-complete')) $('#ins-complete').onclick = () => openCompleteInspection(r);
+  if ($('#ins-review')) $('#ins-review').onclick = async () => {
+    await API.update('inspections', r.id, {
+      reviewed: true, reviewedBy: State.user.fullName || State.user.email, reviewedDate: todayISO() });
+    toast('Marked reviewed'); route();
+  };
+  if ($('#ins-edit')) $('#ins-edit').onclick = () => openForm('inspections', r);
   $('#ins-print').onclick = () => window.print();
 }
 
