@@ -38,9 +38,9 @@
    ================================================================ */
 
 const API_CONFIG = {
-  backend: 'local',            // 'local' (browser storage) or 'supabase'
-  supabaseUrl: 'PASTE_YOUR_SUPABASE_URL',
-  supabaseKey: 'PASTE_YOUR_SUPABASE_ANON_KEY'
+  backend: 'supabase',          // 'local' (browser storage) or 'supabase'
+  supabaseUrl: 'https://ngtfcnnrpzwfsuklspqa.supabase.co',
+  supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5ndGZjbm5ycHp3ZnN1a2xzcHFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4NjE0NzcsImV4cCI6MjEwNzQzNzQ3N30.oYC7HWbzoUpQ53hA3Q4IDKfO5sIPZ4QCBgOugfcqnok'
 };
 
 const API = (() => {
